@@ -75,24 +75,29 @@ class GameState:
             self.score = [0, 0]
             self.board = INIT_BOARD.copy()
             self.current_player = True  # can be True for white or True for black
-            self.last_click = None
-            self.possible_moves_of_piece = []
-            self.ranks_of_piece_moves = []
-            self.last_move_rank = 0
-            # a dict of tuple:list -> {current position: [possible_moves_of_piece], ....}
-            self.all_possible_moves = {}
-            self.all_ranks_moves = {}
+
             # represent if the pieces were moved, [0] - black [1] - white
             self.is_castling_possible = [[True, True], [True, True]]
-
-            # if a piece is blocking a chess, allow it to stay only in the blocking path
-            # dict {position:[possible moves], ...}
-            self.must_stay_positions = {}
-            # a list of lists containing all the positions that should be block (or eat in order to prevent a chess)
-            self.paths_to_blocks = []
-            self.king_position = None
             self.win = [False, False]
-            self.to_print = True
+
+        self.to_print = False
+        self.last_click = None
+        self.last_move_rank = 0
+        self.possible_moves_of_piece = []
+        self.ranks_of_piece_moves = []
+        # if a piece is blocking a chess, allow it to stay only in the blocking path
+        # dict {position:[possible moves], ...}
+        self.must_stay_positions = {}
+        # a list of lists containing all the positions that should be block (or eat in order to prevent a chess)
+        self.paths_to_blocks = []
+        self.king_position = None
+
+        # a dict of tuple:list -> {current position: [possible_moves_of_piece], ....}
+        self.all_possible_moves = {}
+        self.all_ranks_moves = {}
+
+        self.get_all_moves_and_ranks()
+        self.clear_chess_threats()
 
     def generate_copy(self):
         instance_copy = GameState()
@@ -105,15 +110,6 @@ class GameState:
         instance_copy.all_ranks_moves = copy.deepcopy(self.all_ranks_moves)
         instance_copy.is_castling_possible = copy.deepcopy(self.is_castling_possible)
         instance_copy.win = self.win.copy()
-
-        self.last_click = None
-        self.possible_moves_of_piece = []
-        self.ranks_of_piece_moves = []
-        self.last_move_rank = 0
-        self.must_stay_positions = {}
-        self.paths_to_blocks = []
-        self.king_position = None
-        self.to_print = False
 
         return instance_copy
 
@@ -159,24 +155,37 @@ class GameState:
 
         return tuple(code)
 
+    @staticmethod
+    def __decode_board(code):
+        board = np.full((8, 8), "")
+        for row in range(8):
+            for col in range(8):
+                board[row, col] = NUM_TO_LETTER[code[row] % 2 ** 4]
+                code[row] = code[row] >> 4
+        return board
+
+
     def decode_instance(self, code):
         # we want to change the code in the code without changing the origin, so we create list from the tuple
-        code_copy = list(code)
 
+        code_copy = list(code)
         self.board = np.full((8, 8), "")
         for row in range(8):
             for col in range(8):
                 self.board[row, col] = NUM_TO_LETTER[code_copy[row] % 2 ** 4]
                 code_copy[row] = code_copy[row] >> 4
-
+        # 0-15 bits
         self.score = [0, 0]
         self.score[False] = code_copy[8] % 2 ** 8
         code_copy[8] = code_copy[8] >> 8
         self.score[True] = code_copy[8] % 2 ** 8
         code_copy[8] = code_copy[8] >> 8
+
+        # 16 bit
         self.current_player = code_copy[8] % 2 == 1
         code_copy[8] = code_copy[8] >> 1
 
+        # 17-20 bits
         self.is_castling_possible = [[0, 0], [0, 0]]
         self.is_castling_possible[False][0] = code_copy[8] % 2 == 1
         code_copy[8] = code_copy[8] >> 1
@@ -187,15 +196,48 @@ class GameState:
         self.is_castling_possible[True][1] = code_copy[8] % 2 == 1
         code_copy[8] = code_copy[8] >> 1
 
+        # 21-22 bits
         self.win = [False, False]
         self.win[False] = code_copy[8] % 2 == 1
         code_copy[8] = code_copy[8] >> 1
         self.win[True] = code_copy[8] % 2 == 1
 
-        if self.win[0] or self.win[1]:
-            raise Exception
+    @staticmethod
+    def deduct_move(code1, code2):
+        code1 = list(code1)
+        code2 = list(code2)
+        changes = []
+        for row in range(8):
+            for col in range(8):
+                piece1 = code1[row] % 2 ** 4
+                piece2 = code2[row] % 2 ** 4
+                if piece1 != piece2:
+                    changes.append([piece1, piece2, row, col])
+                code1[row] = code1[row] >> 4
+                code2[row] = code2[row] >> 4
 
-        self.to_print = False
+        if len(changes) == 2:
+            # the cell after the move need to be '-' which is 0
+            if changes[0][1] == 0:
+                move = [(changes[0][2], changes[0][3]), (changes[1][2], changes[1][3])]
+            else:
+                move = [(changes[1][2], changes[1][3]), (changes[0][2], changes[0][3])]
+        else:  # castling
+               # the cell before the move need to be 'K'/'k' which will be in 4 col
+               move = [None, None]
+               for cell in changes:
+                   if cell[3] == 4:
+                       move[0] = (cell[2], cell[3])
+                   elif cell[3] == 2 or cell[3] == 6:
+                       move[1] = (cell[2], cell[3])
+
+        if None in move:
+            raise Exception("None in move")
+        return move
+
+    @staticmethod
+    def get_current_player(code):
+        return code[8]//2**16 % 2
 
     def get_all_moves_and_ranks(self):
         self.all_possible_moves = {}
@@ -242,24 +284,7 @@ class GameState:
 
         self.all_possible_moves[king_position] = [move for move in tmp_kings_moves if move not in illegal_moves]
 
-    def get_chess_threats(self):
-
-        """
-        working:
-        for current position
-            if opponent can reach the king - paths to block
-            if my own piece is blocking a threat - stay in position
-        for positions the king can be
-            if opponent can reach - illegal move
-
-        maybe:
-        input: positions the opponent king can be
-            find possible moves:
-                if current can reach the king - paths to block
-                if opponent piece is blocking a threat - stay in position
-                for positions the king can be
-                    if current can reach - illegal move
-        """
+    def clear_chess_threats(self):
 
         def check_chess_move(check_position):
             """:return:
@@ -537,21 +562,27 @@ class GameState:
             # print for record
             print(str(self.board) + ";")
 
+        return self.prepare_for_next_move()
+
+    def prepare_for_next_move(self):
         # prepare for the next move
         self.current_player = not self.current_player
         self.last_click = None
         self.all_possible_moves.clear()
         self.all_ranks_moves.clear()
         self.get_all_moves_and_ranks()
-        self.get_chess_threats()
+        self.clear_chess_threats()
 
         return self.check_if_can_move()
 
-    def set_last_click(self, current_click):
-        self.last_click = current_click
+
+    def set_last_click(self, click):
+        if self.board[click] == '-':
+            raise Exception("click on empty cell")
+        self.last_click = click
         # the function will update our possible_moves
-        self.possible_moves_of_piece = self.all_possible_moves[current_click]
-        self.ranks_of_piece_moves = self.all_ranks_moves[current_click]
+        self.possible_moves_of_piece = self.all_possible_moves[click]
+        self.ranks_of_piece_moves = self.all_ranks_moves[click]
 
     def handle_mouse_click(self, mouse_location):
         if self.to_print:
