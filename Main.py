@@ -3,6 +3,7 @@ from Graph import Node
 import os
 import pygame
 import time
+import numpy as np
 
 WIDTH = HEIGHT = 512
 DIMENSION = 8
@@ -88,6 +89,21 @@ def main():
 
 
 def init_graph(game_state):
+
+    """
+    game_state.board = np.asarray([['r', '-', 'b', 'k', '-', 'b', '-', '-'],
+                                   ['p', 'p', '-', 'p', 'p', 'p', '-', 'p'],
+                                   ['-', '-', '-', '-', '-', '-', '-', 'B'],
+                                   ['-', 'p', '-', 'P', 'Q', 'p', '-', '-'],
+                                   ['-', 'P', '-', '-', '-', '-', '-', '-'],
+                                   ['N', '-', '-', '-', '-', 'P', '-', '-'],
+                                   ['P', 'P', '-', '-', '-', 'P', '-', 'P'],
+                                   ['R', '-', '-', '-', 'R', '-', 'r', 'K']])
+    game_state.current_player = True
+    game_state.get_all_moves_and_ranks()
+    game_state.clear_chess_threats()
+    """
+
     Node.current_node = Node()
     Node.current_node.expand_graph(3, game_state)
 
@@ -96,6 +112,7 @@ def man_vs_machine():
     steps = 3
     screen, clock = init_draw()
     game_state = GameState()
+
     init_graph(game_state)
     running = True
 
@@ -121,12 +138,15 @@ def man_vs_machine():
                     is_changed = True
                     break
             if not is_changed:
-                raise Exception
+                pass
+                # raise Exception
+
+            print("moves and ranks:", game_state.all_possible_moves_N_ranks)
 
             Node.current_node.expand_graph(steps, game_state)
             position, move = Node.current_node.find_best_move()
             game_state.set_last_click(position)
-            game_state.do_move(move)
+            game_state.do_move(move, game_state.get_move_rank(position, move))
 
 
 if __name__ == "__main__":

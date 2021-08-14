@@ -1,5 +1,8 @@
 import random
 import time
+
+import numpy as np
+
 from ChessEngine import GameState
 
 INIT_CODE = (2844571802, 2004318071, 0, 0, 0, 0, 286331153, 1126584884, 2031616)
@@ -90,8 +93,8 @@ class Node:
 
         copy_instance = game_state.generate_copy()
 
-        for position in copy_instance.all_possible_moves:
-            for move in copy_instance.all_possible_moves[position]:
+        for position in copy_instance.all_possible_moves_N_ranks:
+            for move in copy_instance.all_possible_moves_N_ranks[position]:
                 game_state.set_last_click(position)
                 res = game_state.do_move(move)
 
@@ -110,11 +113,8 @@ class Node:
         :return: recomanded step for best resulte
         """
 
-        if steps <= 0:
+        if steps <= 0 or (game_state.win[0] or game_state.win[1]):
             return
-
-        if game_state.win[0] or game_state.win[1]:
-            raise Exception
 
         if len(self.childes) > 0:
             for child in self.childes:
@@ -122,21 +122,20 @@ class Node:
 
         else:
             copy_instance = game_state.generate_copy()
-            for position in copy_instance.all_possible_moves:
-                for move in copy_instance.all_possible_moves[position]:
-                    game_state.set_last_click(position)
-                    res = game_state.do_move(move)
 
+            for position in copy_instance.all_possible_moves_N_ranks:
+                for move, rank in copy_instance.all_possible_moves_N_ranks[position]:
+                    game_state.set_last_click(position)
+                    game_state.do_move(move, rank)
 
                     code = game_state.compress_instance()
-                    if Node.dict_of_nodes.get(code, None) is None:
+                    if Node.dict_of_nodes.get(code) is None:
                         child = Node(game_state, code)
                     else:
                         child = Node.dict_of_nodes[code]
 
                     self.add_child(child)
-                    if res is None:
-                        child.expand_graph(steps - 1, game_state)
+                    child.expand_graph(steps - 1, game_state)
 
                     game_state.restore_instance_from_pre_instance(copy_instance)
 
@@ -233,7 +232,7 @@ class Node:
                 max_childes.append(child)
 
         # choose randomly a child and get its move
-        print(max_score, [GameState.deduct_move(self.code, c.code) for c in max_childes])
+        print("best", max_score, [GameState.deduct_move(self.code, c.code) for c in max_childes])
         Node.current_node = random.choice(max_childes)
         return GameState.deduct_move(self.code, Node.current_node.code)
 

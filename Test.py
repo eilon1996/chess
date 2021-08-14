@@ -3,7 +3,7 @@ from io import StringIO
 from unittest.mock import patch
 
 import os
-import ChessEngine as ChessEngine
+import ChessEngine2 as ChessEngine
 # import ChessEngine
 
 game_state = ChessEngine.GameState()

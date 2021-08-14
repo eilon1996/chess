@@ -82,19 +82,12 @@ class GameState:
 
         self.to_print = False
         self.last_click = None
-        self.last_move_rank = 0
-        self.possible_moves_of_piece = []
-        self.ranks_of_piece_moves = []
         # if a piece is blocking a chess, allow it to stay only in the blocking path
         # dict {position:[possible moves], ...}
-        self.must_stay_positions = {}
-        # a list of lists containing all the positions that should be block (or eat in order to prevent a chess)
-        self.paths_to_blocks = []
         self.king_position = None
 
-        # a dict of tuple:list -> {current position: [possible_moves_of_piece], ....}
-        self.all_possible_moves = {}
-        self.all_ranks_moves = {}
+        # a dict of tuple:list -> {current position: [(move, rank)...], ....}
+        self.all_possible_moves_N_ranks = {}
 
         self.get_all_moves_and_ranks()
         self.clear_chess_threats()
@@ -106,8 +99,7 @@ class GameState:
         instance_copy.score = self.score.copy()
         instance_copy.board = self.board.copy()
         instance_copy.current_player = self.current_player
-        instance_copy.all_possible_moves = copy.deepcopy(self.all_possible_moves)
-        instance_copy.all_ranks_moves = copy.deepcopy(self.all_ranks_moves)
+        instance_copy.all_possible_moves_N_ranks = copy.deepcopy(self.all_possible_moves_N_ranks)
         instance_copy.is_castling_possible = copy.deepcopy(self.is_castling_possible)
         instance_copy.win = self.win.copy()
 
@@ -120,14 +112,8 @@ class GameState:
         self.board = previous_instance.board.copy()
         self.current_player = previous_instance.current_player
         self.last_click = previous_instance.last_click
-        self.all_possible_moves = copy.deepcopy(previous_instance.all_possible_moves)
-        self.all_ranks_moves = copy.deepcopy(previous_instance.all_ranks_moves)
+        self.all_possible_moves_N_ranks = copy.deepcopy(previous_instance.all_possible_moves_N_ranks)
         self.is_castling_possible = copy.deepcopy(previous_instance.is_castling_possible)
-
-        self.must_stay_positions = copy.deepcopy(previous_instance.must_stay_positions)
-        # a list of lists containing all the positions that should be block (or eat in order to prevent a chess)
-        self.paths_to_blocks = copy.deepcopy(previous_instance.paths_to_blocks)
-
         self.win = previous_instance.win.copy()
 
     def compress_instance(self):
@@ -235,54 +221,65 @@ class GameState:
             raise Exception("None in move")
         return move
 
+    def get_move_rank(self, position, move):
+        for move_N_rank in self.all_possible_moves_N_ranks[position]:
+            if move_N_rank[0] == move:
+                return move_N_rank[1]
+
     @staticmethod
     def get_current_player(code):
         return code[8]//2**16 % 2
 
     def get_all_moves_and_ranks(self):
-        self.all_possible_moves = {}
-        self.all_ranks_moves = {}
+        self.all_possible_moves_N_ranks = {}
         for row in range(8):
             for cal in range(8):
                 if self.board[(row, cal)] != '-' and \
                         self.board[(row, cal)].isupper() == self.current_player:
-                    self.all_possible_moves[(row, cal)] = []
-                    self.all_ranks_moves[(row, cal)] = []
+                    self.all_possible_moves_N_ranks[(row, cal)] = []
                     ADD_PIECE_MOVES_DICT[self.board[(row, cal)]](self, (row, cal))
 
-    def remove_illegal_moves(self, king_position, illegal_moves):
+    def remove_illegal_moves(self, king_illegal_moves, paths_to_blocks, must_stay_positions):
 
-        tmp_kings_moves = self.all_possible_moves[king_position]
-        del self.all_possible_moves[king_position]
+        # deal with king can eat a threat, only if it wont be eaten
 
-        if len(self.paths_to_blocks) == 0:
-            for key in self.must_stay_positions:
+        tmp_kings_moves = self.all_possible_moves_N_ranks[self.king_position]
+        del self.all_possible_moves_N_ranks[self.king_position]
+
+        if len(paths_to_blocks) == 0:
+            for position in must_stay_positions:
                 tmp_piece_moves = []
-                for p in self.all_possible_moves[key]:
-                    if p in self.must_stay_positions[key]:
+                for p in self.all_possible_moves_N_ranks[position]:
+                    if p[0] in must_stay_positions[position]:
                         tmp_piece_moves.append(p)
-                self.all_possible_moves[key] = tmp_piece_moves
-        elif len(self.paths_to_blocks) == 1:
-            for key in self.all_possible_moves:
-                if self.must_stay_positions.get(key) is None:
-                    tmp_piece_moves = []
-                    for p in self.all_possible_moves[key]:
-                        for path in self.paths_to_blocks:
-                            if p in path:
-                                tmp_piece_moves.append(p)
-                    self.all_possible_moves[key] = tmp_piece_moves
-        elif len(self.paths_to_blocks) >= 2:
-            tmp = []
-            for move in tmp_kings_moves:
-                for path in self.paths_to_blocks:
-                    if move not in path:
-                        tmp.append(move)
-                        break
-            tmp_kings_moves = tmp
-            for key in self.all_possible_moves:
-                self.all_possible_moves[key] = []
+                self.all_possible_moves_N_ranks[position] = tmp_piece_moves
+        elif len(paths_to_blocks) >= 1:
 
-        self.all_possible_moves[king_position] = [move for move in tmp_kings_moves if move not in illegal_moves]
+            for i in range(len(tmp_kings_moves)):
+                if tmp_kings_moves[i][1] < 0: # castling
+                    king_illegal_moves.append(tmp_kings_moves[i][0])
+
+            if len(paths_to_blocks) == 1:
+                for position in self.all_possible_moves_N_ranks:
+                    if must_stay_positions.get(position) is None:
+                        tmp_piece_moves = []
+                        for p in self.all_possible_moves_N_ranks[position]:
+                            for path in paths_to_blocks:
+                                if p[0] in path:
+                                    tmp_piece_moves.append(p)
+                        self.all_possible_moves_N_ranks[position] = tmp_piece_moves
+            elif len(paths_to_blocks) >= 2:
+                tmp = []
+                for move in tmp_kings_moves:
+                    for path in paths_to_blocks:
+                        if move not in path:
+                            tmp.append(move)
+                            break
+                tmp_kings_moves = tmp
+                self.all_possible_moves_N_ranks = {}
+
+        self.all_possible_moves_N_ranks[self.king_position] = [move_N_rank for move_N_rank in tmp_kings_moves if move_N_rank[0] not in king_illegal_moves]
+
 
     def clear_chess_threats(self):
 
@@ -301,13 +298,12 @@ class GameState:
             if piece_in_position.isupper() == self.current_player: return 1
             return 2
 
-        self.must_stay_positions.clear()
-        self.paths_to_blocks.clear()
+        must_stay_positions = {}
+        paths_to_blocks = []
 
         # check if the king will be threaten in certain moves
         is_king_current_position = True
-        king_positions = [self.king_position] + (
-            self.all_possible_moves[self.king_position])
+        king_positions = [self.king_position] + [move_N_rank[0] for move_N_rank in self.all_possible_moves_N_ranks[self.king_position]]
         king_illegal_moves = []
         for position in king_positions:
             directions = [(1, 1), (-1, 1), (1, -1), (-1, -1), (0, 1), (0, -1), (1, 0), (-1, 0)]
@@ -337,12 +333,15 @@ class GameState:
                         if is_threaten:
                             if is_king_current_position:
                                 if blocker is None:
-                                    self.paths_to_blocks.append(
-                                        [(position[0] + j * d[0], position[1] + j * d[1]) for j in range(1, i + 1)])
-                                    king_illegal_moves.extend([(position[0] + d[0], position[1] + d[1]),
-                                                               (position[0] - d[0], position[1] - d[1])])
+                                    paths_to_blocks.append([(position[0] + j * d[0], position[1] + j * d[1]) for j in range(1, i + 1)])
+                                    # might add out of boundaries illegal move but its ok
+                                    if i == 1:  # to eat the piece will be legal move
+                                        king_illegal_moves.append((position[0] - d[0], position[1] - d[1]))
+                                    else:
+                                        king_illegal_moves.extend([(position[0] + d[0], position[1] + d[1]),
+                                                                   (position[0] - d[0], position[1] - d[1])])
                                 else:  # len(blocker) == 1:
-                                    self.must_stay_positions[blocker] = [
+                                    must_stay_positions[blocker] = [
                                         (position[0] + j * d[0], position[1] + j * d[1]) for j in range(1, i + 1)]
                                 break
                             else:
@@ -355,7 +354,7 @@ class GameState:
                 if 0 > new_position[0] or new_position[0] > 7 or 0 > new_position[1] or new_position[1] > 7: continue
                 if self.board[new_position] == OPPONENT(self.current_player, "P"):
                     if is_king_current_position:
-                        self.paths_to_blocks.append([new_position])
+                        paths_to_blocks.append([new_position])
                     else:
                         king_illegal_moves.append(position)
 
@@ -365,13 +364,14 @@ class GameState:
                 if 0 > new_position[0] or new_position[0] > 7 or 0 > new_position[1] or new_position[1] > 7: continue
                 if self.board[new_position] == OPPONENT(self.current_player, "N"):
                     if is_king_current_position:
-                        self.paths_to_blocks.append([new_position])
+                        paths_to_blocks.append([new_position])
                     else:
                         king_illegal_moves.append(position)
 
             # only in the first time it the king real position, the other are possible moves
             is_king_current_position = False
-        self.remove_illegal_moves(self.king_position, king_illegal_moves)
+
+        self.remove_illegal_moves(king_illegal_moves,paths_to_blocks, must_stay_positions)
 
     def get_players_pieces(self, board=None):
         if board is None: board = self.board
@@ -392,12 +392,10 @@ class GameState:
         if 0 <= new_position[0] <= 7 and 0 <= new_position[1] <= 7:
             piece_in_position = self.board[new_position]
             if piece_in_position == '-':
-                self.all_possible_moves[position].append(new_position)  # a valid move
-                self.all_ranks_moves[position].append(0)
+                self.all_possible_moves_N_ranks[position].append((new_position, 0))  # a valid move
                 return True  # valid move, return True to keep the loop
             if piece_in_position.isupper() != self.current_player:
-                self.all_possible_moves[position].append(new_position)  # valid move# eat move
-                self.all_ranks_moves[position].append(PIECES_RANK[piece_in_position])
+                self.all_possible_moves_N_ranks[position].append((new_position, PIECES_RANK[piece_in_position]))  # valid move# eat move
                 # a valid move but cant continue the loop, return False to break from the loop
         return False  # not a valid move, return False to break from the loop
 
@@ -431,30 +429,23 @@ class GameState:
 
         if position[0] * DIRECTION[color] < LAST_ROW[color] * DIRECTION[color]:  # check if is in limit by color
             if self.board[(position[0] + DIRECTION[color], position[1])] == '-':
-                self.all_possible_moves[position].append((position[0] + DIRECTION[color], position[1]))
-                self.all_ranks_moves[position].append(rank)
+                self.all_possible_moves_N_ranks[position].append(((position[0] + DIRECTION[color], position[1]), rank))
                 if position[0] == FIRST_ROW[color] + DIRECTION[color] and self.board[
                     (position[0] + DIRECTION[color] * 2, position[1])] == '-':
-                    self.all_possible_moves[position].append(
-                        (position[0] + DIRECTION[color] * 2, position[1]))
-                    self.all_ranks_moves[position].append(rank)
+                    self.all_possible_moves_N_ranks[position].append(
+                        ((position[0] + DIRECTION[color] * 2, position[1]), rank))
             # check for eat move
             if position[1] > 0 and self.board[(position[0] + DIRECTION[color], position[1] - 1)] != '-' \
                     and self.board[(position[0] + DIRECTION[color], position[1] - 1)].isupper() != color:
-                self.all_possible_moves[position].append(
-                    (position[0] + DIRECTION[color], position[1] - 1))
-                self.all_ranks_moves[position].append(rank +
-                                                      PIECES_RANK[self.board[
-                                                          (position[0] + DIRECTION[color],
-                                                           position[1] - 1)]])
+
+                self.all_possible_moves_N_ranks[position].append(((position[0] + DIRECTION[color], position[1] - 1),
+                                    rank + PIECES_RANK[self.board[(position[0] + DIRECTION[color], position[1] - 1)]]))
+
             if position[1] < 7 and self.board[(position[0] + DIRECTION[color], position[1] + 1)][0] != '-' \
                     and self.board[(position[0] + DIRECTION[color], position[1] + 1)].isupper() != color:
-                self.all_possible_moves[position].append(
-                    (position[0] + DIRECTION[color], position[1] + 1))
-                self.all_ranks_moves[position].append(rank +
-                                                      PIECES_RANK[self.board[
-                                                          (position[0] + DIRECTION[color],
-                                                           position[1] + 1)]])
+                self.all_possible_moves_N_ranks[position].append((
+                    (position[0] + DIRECTION[color], position[1] + 1),
+                    rank + PIECES_RANK[self.board[(position[0] + DIRECTION[color], position[1] + 1)]]))
 
     def add_knight_moves(self, position):
         knight_options = [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)]
@@ -463,6 +454,7 @@ class GameState:
             self.check_and_add_move(position, new_position)
 
     def add_king_moves(self, position):
+        # because castling will never be an eat move, we will mark it with a negative rank -10 for left, -11 for right
         self.king_position = position
         king_options = [(0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1)]
         for option in king_options:
@@ -476,14 +468,10 @@ class GameState:
         if self.is_castling_possible[self.current_player][0] and \
                 self.board[(row, 3)] == '-' and self.board[(row, 2)] == '-' and \
                 self.board[(row, 1)] == '-':
-            self.all_possible_moves[position].append((row, 2))
-            # because castling will never be an eat move, we will mark it with a negative rank -10 for left, -11 for right
-            self.all_ranks_moves[position].append(-10)
-
+            self.all_possible_moves_N_ranks[position].append(((row, 2), -10))
         if self.is_castling_possible[self.current_player][0] and \
                 self.board[(row, 5)] == '-' and self.board[(row, 6)] == '-':
-            self.all_possible_moves[position].append((row, 6))  # a valid move
-            self.all_ranks_moves[position].append(-11)
+            self.all_possible_moves_N_ranks[position].append(((row, 6), -11))
 
     def handle_castling(self, rank):
         if self.current_player:
@@ -526,8 +514,8 @@ class GameState:
 
     def check_if_can_move(self):
         can_move = False
-        for key in self.all_possible_moves:
-            if len(self.all_possible_moves[key]) > 0:
+        for position in self.all_possible_moves_N_ranks:
+            if len(self.all_possible_moves_N_ranks[position]) > 0:
                 return None  # no one won yet
 
         # the board is printed for the record
@@ -538,24 +526,22 @@ class GameState:
                 print(WIN_MESSAGE[not self.current_player] + ";")
             return WIN_MESSAGE[not self.current_player]
 
-    def do_move(self, current_click):
-        self.last_move_rank = self.ranks_of_piece_moves[
-            self.possible_moves_of_piece.index(current_click)]
-        if self.last_move_rank > 0:
+    def do_move(self, current_click, rank):
+        if rank > 0:
             # update player score
-            self.score[self.current_player] += self.last_move_rank
+            self.score[self.current_player] += rank
 
         # update board
         self.board[current_click] = self.board[self.last_click]
         self.board[self.last_click] = '-'
-        self.handle_castling(self.last_move_rank)
+        self.handle_castling(rank)
 
         # handle queening, check by possible
-        if self.last_move_rank in [8, 11, 13, 17]:
+        if rank in [8, 11, 13, 17]:
             self.board[current_click] = CURRENT(self.current_player, 'Q')
         # game over for one of the sides
-        if self.last_move_rank == math.inf:
-            raise Exception
+        if rank == math.inf:
+            raise Exception("king was eaten")
             return WIN_MESSAGE[self.current_player]
 
         if self.to_print:
@@ -568,8 +554,7 @@ class GameState:
         # prepare for the next move
         self.current_player = not self.current_player
         self.last_click = None
-        self.all_possible_moves.clear()
-        self.all_ranks_moves.clear()
+        self.all_possible_moves_N_ranks.clear()
         self.get_all_moves_and_ranks()
         self.clear_chess_threats()
 
@@ -580,9 +565,6 @@ class GameState:
         if self.board[click] == '-':
             raise Exception("click on empty cell")
         self.last_click = click
-        # the function will update our possible_moves
-        self.possible_moves_of_piece = self.all_possible_moves[click]
-        self.ranks_of_piece_moves = self.all_ranks_moves[click]
 
     def handle_mouse_click(self, mouse_location):
         if self.to_print:
@@ -600,9 +582,15 @@ class GameState:
             if current_click == self.last_click:
                 self.last_click = None
 
-            elif current_click in self.possible_moves_of_piece:
-                return self.do_move(current_click)
+            else:
+                for move_N_rank in self.all_possible_moves_N_ranks[self.last_click]:
+                    if current_click == move_N_rank[0]:
+                        return self.do_move(current_click, move_N_rank[1])
+
+                # if not found
+                if current_click in self.all_possible_moves_N_ranks.keys():
+                    self.set_last_click(current_click)
 
     def get_highlight_squares(self):
         if self.last_click is None: return []  # if there is no last click there aren't any possible moves
-        return [self.last_click] + self.possible_moves_of_piece
+        return [self.last_click] + [move_N_rank[0] for move_N_rank in self.all_possible_moves_N_ranks[self.last_click]]
