@@ -25,7 +25,7 @@ PIECES_RANK = {
 LAST_ROW = [7, 0]
 FIRST_ROW = [0, 7]
 DIRECTION = [1, -1]
-WIN_MESSAGE = ["Black Won", "White Won"]
+WIN_MESSAGE = ["black_wins", "white_wins"]
 INIT_BOARD = np.array([
     ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'],
     ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
@@ -573,7 +573,7 @@ class GameState:
         current_click = (
             mouse_location[1] // SQ_SIZE, mouse_location[0] // SQ_SIZE)  # we switch the place to match the array
         if current_click[0] == 8:
-            return "game done"
+            return "goodbye"
         piece = self.board[current_click]
         if self.last_click is None:
             if piece != '-' and piece.isupper() == self.current_player:
@@ -585,6 +585,7 @@ class GameState:
             else:
                 for move_N_rank in self.all_possible_moves_N_ranks[self.last_click]:
                     if current_click == move_N_rank[0]:
+                        self.last_move = (self.last_click, current_click)
                         return self.do_move(current_click, move_N_rank[1])
 
                 # if not found
