@@ -43,17 +43,17 @@ class Game:
 
         ### choose_against_who_to_play and choose color
 
-        self.display_massage("play_against")
-        if self.pygame_loop(Game.__choose, False):
+        # self.display_massage("play_against")
+        if self.pygame_loop(Game.__choose, "play_against"):
             self.game_state.get_all_moves_and_ranks()
             self.play_against = "other_player"
 
-            self.display_massage("choose_room")
-            create_or_join = self.pygame_loop(Game.__choose, False)  # create = 0, join = 1
+            # self.display_massage("choose_room")
+            create_or_join = self.pygame_loop(Game.__choose, "choose_room")  # create = 0, join = 1
             if create_or_join:
-                self.create_room()
-            else:
                 self.join_room()
+            else:
+                self.create_room()
 
 
         else:  # right square
@@ -112,10 +112,17 @@ class Game:
 
     def goodbye(self):
         self.display_massage("goodbye")
-        time.sleep(2)
+        time.sleep(1)
+        self.firebase.delete_room()
+        raise Exception("goodbye")
 
-    def pygame_loop(self, function, display=True):
+    def pygame_loop(self, function, display="game_state"):
         while True:
+            if display == "game_state":
+                self.draw_game_state()
+            else:
+                self.display_massage(display)
+
             for event in pygame.event.get():
                 if event.type == pygame.QUIT or \
                         (event.type == pygame.MOUSEBUTTONDOWN and pygame.mouse.get_pos()[1] // 64 == 8):
@@ -130,8 +137,6 @@ class Game:
                 if res is not None:
                     return res
 
-            if display:
-                self.draw_game_state()
 
     def display_massage(self, message):
         self.screen.blit(Game.IMAGES[message],
@@ -139,10 +144,10 @@ class Game:
         pygame.display.flip()
 
     def choose_color(self):
-        self.display_massage("choose_color")
-        return int(not self.pygame_loop(Game.__choose, False))
+        # self.display_massage("choose_color")
+        return int(not self.pygame_loop(Game.__choose, "choose_color"))
 
-    def create_room(self):
+    def join_room(self):
         error = ""
         while True:
             room_id = self.enter_room_id(error)
@@ -157,7 +162,7 @@ class Game:
                 error = "room is not exist"
 
 
-    def join_room(self):
+    def create_room(self):
         error = ""
         while True:
             room_id = self.enter_room_id(error)
@@ -256,6 +261,7 @@ class Game:
         pygame.display.flip()
 
     def play(self):
+        print("start play")
         if self.play_against == "computer":
             self.pygame_loop(self.__play_against_the_computer)
         else:
@@ -320,5 +326,8 @@ class Game:
 
 
 if __name__ == "__main__":
-    game = Game()
-    game.play()
+    try:
+        game = Game()
+        game.play()
+    except Exception as e:
+        print(e)

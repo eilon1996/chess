@@ -54,7 +54,9 @@ class Firebase:
     def is_room_exist(room_id):
         response = requests.get(Firebase.FIREBASE_URL + "/" +room_id+ "/.json").text
         if response == 'null':
+            print("room not exist")
             return False
+        print("room exist")
         return True
 
     def create_room(self):
@@ -64,7 +66,16 @@ class Firebase:
                               "last_move": ""
                           }}
         room = json.dumps(room)
-        requests.patch(Firebase.FIREBASE_URL + "/.json", room)
+        res = requests.patch(Firebase.FIREBASE_URL + "/.json", room)
+        if res.ok:
+            print("room created")
+        else:
+            print(res)
+
+    def delete_room(self):
+        res = requests.delete(Firebase.FIREBASE_URL + "/" + self.room_id + "/.json")
+        print(res)
+
 
     def set_last_move(self, move):
         move = str(move[0][0]) + str(move[0][1]) + str(move[1][0]) + str(move[1][1])
@@ -94,3 +105,7 @@ class Firebase:
             pass  # wait
         return
 
+if __name__ == "__main__":
+
+    f = Firebase("123", 1, host_color=1)
+    f.delete_room()
