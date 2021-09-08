@@ -1,5 +1,6 @@
 import json
 import requests
+import pygame
 
 class Firebase:
 
@@ -101,9 +102,12 @@ class Firebase:
                 return move
 
     def wait_for_opponent_to_connect(self):
-        while self.is_opponent_online() == "0":
-            pass  # wait
-        return
+        while True:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    raise Exception("goodbye")
+            if self.is_opponent_online() == "1":
+                return "1"
 
 if __name__ == "__main__":
 

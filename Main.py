@@ -43,26 +43,28 @@ class Game:
 
         ### choose_against_who_to_play and choose color
 
-        # self.display_massage("play_against")
-        if self.pygame_loop(Game.__choose, "play_against"):
-            self.game_state.get_all_moves_and_ranks()
-            self.play_against = "other_player"
+        try:
+            if self.choose("play_against"):
+                self.game_state.get_all_moves_and_ranks()
+                self.play_against = "other_player"
 
-            # self.display_massage("choose_room")
-            create_or_join = self.pygame_loop(Game.__choose, "choose_room")  # create = 0, join = 1
-            if create_or_join:
-                self.join_room()
-            else:
-                self.create_room()
+                # self.display_massage("choose_room")
+                create_or_join = self.choose("choose_room")  # create = 0, join = 1
+                if create_or_join:
+                    self.join_room()
+                else:
+                    self.create_room()
 
 
-        else:  # right square
-            self.my_color = self.choose_color()
-            Node.current_node = Node()
-            Node.current_node.expand_graph(Game.COMPUTE_DEEP_STEPS, self.game_state)
-            print("computer")
-            self.play_against = "computer"
+            else:  # right square
+                self.my_color = self.choose_color()
+                Node.current_node = Node()
+                Node.current_node.expand_graph(Game.COMPUTE_DEEP_STEPS, self.game_state)
+                print("computer")
+                self.play_against = "computer"
 
+        except Exception as e:
+            self.handle_exceptions(e)
 
     @staticmethod
     def init_draw():
@@ -100,43 +102,30 @@ class Game:
                 Game.IMAGES[f_name[:-4]] = pygame.transform.scale(
                     pygame.image.load(dots + separate + "images" + separate + f_name), Game.MASSAGE_SIZE)
 
+    def handle_exceptions(self, e):
+        print(e)
+        if str(e) == "goodbye":
+            self.display_massage("goodbye")
+            time.sleep(1)
+            try:
+                self.firebase.delete_room()
+            except:
+                pass
 
-    @staticmethod
-    def __choose(event):
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            if Game.CHOICE_BOXES[0].collidepoint(event.pos):
-                return 0  # "left"
-            elif Game.CHOICE_BOXES[1].collidepoint(event.pos):
-                return 1  # "right"
-        return None
-
-    def goodbye(self):
-        self.display_massage("goodbye")
-        time.sleep(1)
-        self.firebase.delete_room()
-        raise Exception("goodbye")
-
-    def pygame_loop(self, function, display="game_state"):
+    def choose(self, display):
         while True:
-            if display == "game_state":
-                self.draw_game_state()
-            else:
-                self.display_massage(display)
 
             for event in pygame.event.get():
-                if event.type == pygame.QUIT or \
-                        (event.type == pygame.MOUSEBUTTONDOWN and pygame.mouse.get_pos()[1] // 64 == 8):
-                    self.goodbye()
-                    return
+                self.display_massage(display)
 
-                res = function(event)
-                if res == "goodbye":
-                    self.goodbye()
-                    return
+                if event.type == pygame.QUIT:
+                    raise Exception("goodbye")
 
-                if res is not None:
-                    return res
-
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if Game.CHOICE_BOXES[0].collidepoint(event.pos):
+                        return 0  # "left"
+                    elif Game.CHOICE_BOXES[1].collidepoint(event.pos):
+                        return 1  # "right"
 
     def display_massage(self, message):
         self.screen.blit(Game.IMAGES[message],
@@ -145,7 +134,7 @@ class Game:
 
     def choose_color(self):
         # self.display_massage("choose_color")
-        return int(not self.pygame_loop(Game.__choose, "choose_color"))
+        return int(not self.choose("choose_color"))
 
     def join_room(self):
         error = ""
@@ -189,7 +178,7 @@ class Game:
             wrong_input = False
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    raise Exception("quit")
+                    raise Exception("goodbye")
 
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_RETURN:
@@ -262,67 +251,97 @@ class Game:
 
     def play(self):
         print("start play")
-        if self.play_against == "computer":
-            self.pygame_loop(self.__play_against_the_computer)
-        else:
-            self.pygame_loop(self.__play_against_other_player)
+        try:
+            if self.play_against == "computer":
+                self.__play_against_the_computer()
+            else:
+                self.__play_against_other_player()
+        except Exception as e:
+            self.handle_exceptions(e)
+
+    def __play_against_other_player(self):
+        while True:
+            self.draw_game_state()
+            return_value = None
+
+            if self.game_state.current_player == self.my_color:  # player turn
+                for event in pygame.event.get():   # adding the None so it will enter the loop every time
+
+                    if event.type == pygame.QUIT or \
+                            (event.type == pygame.MOUSEBUTTONDOWN and pygame.mouse.get_pos()[1] // 64 == 8):
+                        raise Exception("goodbye")
+
+                    if event.type == pygame.MOUSEBUTTONDOWN:
+                        mouse_location = pygame.mouse.get_pos()
+                        return_value = self.game_state.handle_mouse_click(mouse_location)
+
+                        if self.game_state.current_player != self.my_color:  # when player is changed
+                            self.firebase.set_last_move(self.game_state.last_move)
+
+            else:  # opponent turn
+                for event in pygame.event.get():  # adding the None so it will enter the loop every time
+
+                    if event.type == pygame.QUIT or \
+                            (event.type == pygame.MOUSEBUTTONDOWN and pygame.mouse.get_pos()[1] // 64 == 8):
+                        raise Exception("goodbye")
+
+                last_move = self.firebase.get_last_move()
+                if last_move != self.firebase.last_move:
+                    print("new last move")
+                    position, move = (int(last_move[0]), int(last_move[1])), (int(last_move[2]), int(last_move[3]))
+                    self.game_state.set_last_click(position)
+                    return_value = self.game_state.do_move(move, self.game_state.get_move_rank(position, move))
+
+            if return_value is not None:
+                self.display_massage(return_value)
+                time.sleep(2)
+                raise Exception("goodbye")
+
+    def __play_against_the_computer(self):
+        while True:
+            self.draw_game_state()
+            return_value = None
+
+            if self.game_state.current_player == self.my_color:  # player turn
+                for event in pygame.event.get():  # adding the None so it will enter the loop every time
+
+                    if event.type == pygame.QUIT or \
+                            (event.type == pygame.MOUSEBUTTONDOWN and pygame.mouse.get_pos()[1] // 64 == 8):
+                        raise Exception("goodbye")
+
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    mouse_location = pygame.mouse.get_pos()
+                    return_value = self.game_state.handle_mouse_click(mouse_location)
+
+            else:  # computer turn
+                for event in pygame.event.get():  # adding the None so it will enter the loop every time
+                    self.draw_game_state()
+                    if event.type == pygame.QUIT or \
+                            (event.type == pygame.MOUSEBUTTONDOWN and pygame.mouse.get_pos()[1] // 64 == 8):
+                        raise Exception("goodbye")
+
+                code = self.game_state.compress_instance()
+                for child in Node.current_node.childes:
+                    if child.code == code:
+                        Node.current_node = child
+                        break
+                Node.current_node.expand_graph(Game.COMPUTE_DEEP_STEPS, self.game_state)
+                position, move = Node.current_node.find_best_move()
+                self.game_state.set_last_click(position)
+                return_value = self.game_state.do_move(move, self.game_state.get_move_rank(position, move))
+
+            if return_value is not None:
+                self.display_massage(return_value)
+                time.sleep(2)
+                raise Exception("goodbye")
 
     def __play_against_other_player_same_computer(self, event):
         if event.type == pygame.MOUSEBUTTONDOWN:
             mouse_location = pygame.mouse.get_pos()
             return_value = self.game_state.handle_mouse_click(mouse_location)
             if return_value is not None:
-                return "goodbye"
+                raise Exception("goodbye")
 
-    def __play_against_other_player(self, event):
-        return_value = None
-        if self.game_state.current_player == self.my_color:  # player turn
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                mouse_location = pygame.mouse.get_pos()
-                return_value = self.game_state.handle_mouse_click(mouse_location)
-
-                if self.game_state.current_player != self.my_color: # when player is changed
-                    self.firebase.set_last_move(self.game_state.last_move)
-
-        else:  # opponent turn
-            last_move = self.firebase.get_last_move()
-            if last_move != self.firebase.last_move:
-                position, move = (int(last_move[0]), int(last_move[1])), (int(last_move[2]), int(last_move[3]))
-                self.game_state.set_last_click(position)
-                return_value = self.game_state.do_move(move, self.game_state.get_move_rank(position, move))
-
-        if return_value is not None:
-            self.display_massage(return_value)
-            time.sleep(2)
-            return "goodbye"
-
-
-
-    def __play_against_the_computer(self, event):
-        return_value = None
-
-        if self.game_state.current_player == self.my_color:  # player turn
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                mouse_location = pygame.mouse.get_pos()
-                return_value = self.game_state.handle_mouse_click(mouse_location)
-
-        else:  # computer turn
-            code = self.game_state.compress_instance()
-            for child in Node.current_node.childes:
-                if child.code == code:
-                    Node.current_node = child
-                    break
-            # print("moves and ranks:", self.game_state.all_possible_moves_N_ranks)
-
-            Node.current_node.expand_graph(Game.COMPUTE_DEEP_STEPS, self.game_state)
-            position, move = Node.current_node.find_best_move()
-            self.game_state.set_last_click(position)
-            return_value = self.game_state.do_move(move, self.game_state.get_move_rank(position, move))
-
-        if return_value is not None:
-            self.display_massage(return_value)
-            time.sleep(2)
-            return "goodbye"
 
 
 if __name__ == "__main__":
