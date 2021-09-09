@@ -1,8 +1,5 @@
 import random
 import time
-
-import numpy as np
-
 from ChessEngine import GameState
 
 INIT_CODE = (2844571802, 2004318071, 0, 0, 0, 0, 286331153, 1126584884, 2031616)
